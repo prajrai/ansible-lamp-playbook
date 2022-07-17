@@ -1,0 +1,104 @@
+---
+- hosts: all
+  become: true
+  gather_facts: true 
+  
+  vars_files: 
+    - "{{ ansible_facts['distribution'] }}.yaml"
+    - variable.yaml
+
+  tasks:
+    - name: Installing webserver
+      ansible.builtin.apt:
+        name: "{{ package_name }}"
+        state: present
+        update_cache: true
+      when: ansible_facts['distribution'] == 'Ubuntu'
+      
+    - name: Installing apache webserver Redhat
+      ansible.builtin.yum:
+        name: httpd
+        state: present
+      when: ansible_facts['distribution'] == 'Redhat'
+      notify: Restart httpd - Redhat
+  
+    - name: Copying virtual host configuration
+      ansible.builtin.template:
+        src: apache2.conf.j2 
+        dest: "{{ config_dest }}"
+        mode: 0644
+      notify: Restarted Apache2
+
+    - name: Copying webpage - Index.php
+      ansible.builtin.template: 
+        src: index.php
+        dest: "{{ web_dest }}"
+        mode: 0664
+
+    - name: Installing Mysql, PHP and PHP-Mysql
+      ansible.builtin.apt:
+        name:
+          - mysql-server
+          - php
+          - php-mysql
+          - python3-pymysql
+        state: present 
+        update_cache: yes
+    
+    - name: Start Mysql
+      ansible.builtin.service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Create user 'Tom'
+      ansible.builtin.user:
+        name: Tom
+        password: '$5$iDjkHuWPEPGPB$bwed2.QGcEHSIZsy8D9nKo.I/Kod3jwFZcxueVMhtXA'
+        shell: /bin/bash
+      
+    - name: Make Tom sudo  
+      lineinfile:
+        dest: /etc/sudoers
+        state: present
+        line: '%Tom ALL=(ALL) NOPASSWD: ALL'
+        validate: 'visudo -cf %s'
+
+    - name: Create MySQL user
+      community.mysql.mysql_user:
+        login_host: 'localhost'
+        login_user: root
+        login_password: root
+        name: root
+        password: root
+        #priv: "*.*:ALL"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Copy .my.cnf to client
+      ansible.builtin.copy:
+        src: "{{ my_sql }}"
+        dest: /home/Tom
+        owner: Tom
+        group: Tom
+        mode: 0600
+         
+    # cmd: ansible-vault encrypt ~/ansible-tests/task4/.my.cnf --vault-password-file password-file
+       
+
+  handlers:
+    - name: Restarted Apache2
+      ansible.builtin.service:
+        name: apache2
+        state: restarted 
+
+    - name: Restart httpd - Redhat
+      ansible.builtin.service:
+        name: httpd
+        state: restarted
+
+    - name: Restart Mysql
+      ansible.builtin.service:
+        name: mysql 
+        state: restarted
+        enabled: yes
